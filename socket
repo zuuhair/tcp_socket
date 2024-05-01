@@ -1,0 +1,98 @@
+import sys
+import socket
+import threading
+
+def server_loop(l_host, l_port, r_host, r_port, r_first):
+
+    server = socket.socket()
+    try:
+       server.bind((l_host, l_port))
+    except socket.error:
+       print('Failed to listen on %s:%d'%(l_host, l_port))
+       print('check for other listening socket or permissions')
+       sys.exit(0)
+
+    print('listening on %s:%d'%(l_host, l_port))
+    server.listen(5) # listening 5 connection
+
+    while True:
+       client_socket, addr = server.accept()
+       print('[==>] received incoming connection from %s:%d'%(addr[0], addr[1]))
+       proxy_thread = threading.Thread(target=proxy_handler, args=(client_socket, r_host,r_port, r_first))
+       proxy_thread.start()
+
+
+
+
+def proxy_handler(c_sock, r_host, r_port, r_first):
+    r_sock = socket.socket()
+    r_sock.connect((r_host, r_port))
+    if r_first:
+       remote_buffer = receive_from(r_sock)
+       hexdump(remote_buffer)
+       remote_buffer = response_handler(remote_buffer)
+
+    if len(remote_buffer):
+       print('[<==] sending %d bytes to localhost'%(remote_buffer))
+       c_sock.send(remote_buffer)
+    while True:
+        local_buffer = receive_from(c_sock)
+
+        if len(local_buffer):
+           print('[==>] received %d bytes from localhost.'%len(local_buffer))
+           hexdump(local_buffer)
+           local_buffer = request_handler(local_buffer)
+
+           r_sock.send(local_buffer)
+           print('[==>] send to remote')
+
+        remote_buffer = receive_from(r_sock)
+        if len(remote_buffer):
+           print('[<==] received %d bytes from remote'%(len(remote(buffer))))
+           hexdump(remote_buffer)
+           remote_buffer = response_handler(remote_buffer)
+           c_sock.send(remote_buffer)
+           print('[<==] send to localhost')
+
+        if not len(local_buffer):
+           c_sock.close()
+           r_sock.close()
+           print('no more data. closing connections')
+           break
+
+def hexdump(src, length=16):
+    result = []
+    digits = 4 if isinstance(src, unicode) else 2
+    for i in xrange(0, len(src), length):
+        s = src[i:i+length]
+        hexa = b' '.join(['%0*X'%(digits, ord(x)) for x in s])
+        text = b''.join([x if 0x20 <= ord(x) < 0x7F else b'.' for x in s])
+        result.append(b'%04X %-*s %s'%(i, length*(digits+1), hexa, text))
+
+    print(b'\n'.join(result))
+
+def main():
+
+    if len(sys.argv[1:]) != 5:
+       print('usage ./tcp_proxy.py [localhost] [localport] [remotehost][remoteport][receivefirst]')
+       print('example: ./tcp_proxy.py localhost 8080 10.10.10.1 9000 True')
+       sys.exit(0)
+
+
+    l_host = sys.argv[1]
+    l_port = int(sys.argv[2])
+
+    r_host = sys.argv[3]
+    r_port = int(sys.argv[4])
+
+    r_first = sys.argv[5]
+
+    if 'True' in  r_first:
+        r_first = True
+    else:
+        r_first = False
+
+    server_loop(l_host, l_port, r_host, r_port, r_first)
+
+
+main()
